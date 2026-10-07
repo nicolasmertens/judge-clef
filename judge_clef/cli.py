@@ -113,8 +113,8 @@ def cmd_statusline() -> int:
     live = _live_effort(data.get("session_id", ""))
     try:
         with open(_cache_path(data.get("session_id", ""))) as fh:
-            line = json.load(fh)["footer"].split(" · effort ")[0]
-            print(line + (f" · effort {live} (live)" if live else ""))
+            line = json.load(fh)["footer"]
+            print(line.split(" · effort ")[0] + f" · effort {live} (live)" if live else line)
             return 0
     except (OSError, ValueError, KeyError):
         pass

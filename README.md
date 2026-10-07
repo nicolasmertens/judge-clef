@@ -1,6 +1,6 @@
 # Judge Clef
 
-**Tells you when to `/compact`.** Every turn, Judge Clef measures the exact context size of your Claude Code session and asks [Cloudflare Clef](https://developers.cloudflare.com/workers-ai/models/clef-flash/) whether *now* is a good moment to compact. The answer lands as one line at the end of Claude's reply:
+**Tells you when to `/compact`, and lets Clef pick the effort for every step.** Every turn, Judge Clef measures the exact context size of your Claude Code session and asks [Cloudflare Clef](https://developers.cloudflare.com/workers-ai/models/clef-flash/) whether *now* is a good moment to compact. The answer lands as one line at the end of Claude's reply:
 
 ```
 Judge Clef: 649k context · compact now 0.93 (task done, new topic, heavy context) · effort hint low
@@ -99,11 +99,53 @@ judge-clef check SESSION.jsonl --prompt "next message" [--json] [--no-clef]
 judge-clef scan ~/.claude/projects        # peak context per session, how many ever compacted
 ```
 
-## Placeholder: effort hint
+## Effort router: Clef re-picks effort at every step
 
-The same Clef call also answers a fourth question: how much reasoning effort the next message needs (`low` / `medium` / `high` / `xhigh`). Today this is **only a hint** in the footer and status line. Nothing changes the effort level yet.
+```bash
+judge-clef claude            # instead of `claude`; any claude arguments work: judge-clef claude -c, -p "..."
+```
 
-The full version is what [jev-opus](https://github.com/WXK-AI/jev-opus) does with TypeSafe Jev: a local gateway re-picks effort before every API call without breaking the prompt cache. Clef follows the same System One API as Jev ("drop-in compatible", per Cloudflare's [launch changelog](https://developers.cloudflare.com/changelog/post/2026-10-01-clef-workers-ai/)), so that gateway could run on Clef by swapping its client's endpoint and model. That's the planned next step, once the hint has shown it agrees with what you'd have picked.
+This runs your normal Claude Code through a small local gateway. Before every model call that follows a new prompt or a finished tool batch, Clef judges the situation and the gateway sets the effort for that step:
+
+- **New prompt:** Clef judges task type, difficulty and stakes, which sets the base level. A chat question stays low, a design question goes up.
+- **After each tool batch:** Clef judges the phase (exploring, implementing, diagnosing, verifying, finishing), how hard the next step is, and whether the agent is stuck.
+- **A failing check raises effort right away,** one level above whatever already failed. Three failures in a row escalate hard.
+- **Lowering effort needs evidence.** It goes one level at a time, and never right after a raise.
+
+A real run (fixing two bugs in a small date library, Opus 5.5 on a claude.ai subscription):
+
+```
+medium          [clef 496ms] debugging, difficulty 1.9/4   cache_read=203,686
+medium -> HIGH  [clef 450ms] failing check                 cache_read=376,268
+high            [clef 398ms] verifying, hold               cache_read=414,322
+```
+
+### Why the prompt cache survives
+
+Changing the top-level `effort` between requests changes the request prefix and throws the cache away. Opus 5.5 also accepts effort as an effort-only system message inside the conversation: `{"role": "system", "content": [], "output_config": {"effort": "high"}}`, under the per-message effort beta.
+
+The gateway only ever changes effort that way:
+- Each statement is keyed by a hash of every message before it.
+- Because Claude Code resends the whole history on every request, the gateway replays each statement at exactly the same place every time.
+- The prefix the model saw never changes, so both the prompt cache and preserved thinking stay valid.
+
+In the run above, the third call read 414,322 tokens from cache: exactly the previous call's 376,268 cache reads plus its 38,054 cache writes, inserted statement included.
+
+### Details
+
+- **Bounds:** set `JUDGE_CLEF_MIN_EFFORT` / `JUDGE_CLEF_MAX_EFFORT` (default `low` to `high`); `max` is only used if you allow it.
+- **Your `/effort` wins.** Claude Code states its own level on every prompt. When you change it with `/effort`, routing pauses until your next prompt.
+- **Routed models:** `JUDGE_CLEF_ROUTE_MODELS` (default `claude-opus-5-5,claude-opus-5,claude-fable-5-1`). Everything else passes through untouched, and so do token counting, tool-less side requests (titles, summaries) and the next-prompt suggestion. Those still get the statements replayed, so they count the same transcript.
+- **Restarts:** every decision is written to a journal (`~/.cache/judge-clef/effort-journal.jsonl`) before the request is forwarded, so a restart replays exactly what the model saw. **Resume gateway sessions through the gateway** (`judge-clef claude -c`). Without the statements, the history would look edited.
+- **Privacy:** Clef sees the prompt, the agent's short notes, the tool names and commands, and a 400-character head and tail of each tool result (enough to spot a failing test). Sessions in `JUDGE_CLEF_LOCAL_ONLY` directories never call Clef; they use the local fallback policy.
+- **Security:** the gateway listens on 127.0.0.1 only, and requires a random per-launch token header (`x-judge-clef-token`) that `judge-clef claude` wires up for you. Your claude.ai login or API key is forwarded unchanged and never logged.
+- **Other surfaces:** `judge-clef gateway --port 47830` prints the `ANTHROPIC_BASE_URL` and `ANTHROPIC_CUSTOM_HEADERS` to export for IDE extensions or Agent SDK apps.
+- **Log:** `~/.cache/judge-clef/gateway.log` has one line per decision, with cache reads and writes. `JUDGE_CLEF_DEBUG=1` adds each request's message layout (never content or credentials).
+- **Latency:** one Clef call per step, typically 0.4 to 0.6 s.
+
+### Credit
+
+The idea and the cache-safe insertion design come from [jev-opus](https://github.com/WXK-AI/jev-opus) (MIT) by WXK-AI, which does this with TypeSafe Jev. Judge Clef is an independent Python rewrite on Cloudflare Clef, which follows the same System One API ("drop-in compatible with Jev", per Cloudflare's [launch changelog](https://developers.cloudflare.com/changelog/post/2026-10-01-clef-workers-ai/)). The effort policy (task levels, failure escalation, hysteresis) follows theirs closely.
 
 ## License
 

@@ -4,6 +4,8 @@
   judge-clef statusline     status line command: prints the last verdict (no API call)
   judge-clef check FILE     judge one transcript by hand  [--prompt TEXT] [--json] [--no-clef]
   judge-clef scan DIR       peak context per session in a Claude Code projects dir
+  judge-clef claude [ARGS]  run Claude Code with Clef re-picking effort every step (gateway)
+  judge-clef gateway        long-running gateway for other surfaces  [--port N]
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import glob
 import json
 import os
 import sys
+import time
 
 from . import judge, transcript
 
@@ -29,6 +32,52 @@ def _cache_path(session_id: str) -> str:
     return os.path.join(CACHE, safe + ".json")
 
 
+def _live_effort(session_id: str) -> str:
+    """Effort the gateway last set for this session, if it is running it."""
+    safe = "".join(c for c in session_id if c.isalnum() or c in "-_")
+    try:
+        with open(os.path.join(CACHE, f"effort-{safe}.json")) as fh:
+            s = json.load(fh)
+        return s["effort"] if time.time() - s.get("at", 0) < 3600 else ""
+    except (OSError, ValueError, KeyError):
+        return ""
+
+
+def cmd_gateway(args: list) -> int:
+    from . import gateway
+    port = int(args[args.index("--port") + 1]) if "--port" in args else 47830
+    gw = gateway.Gateway()
+    srv = gateway.serve(gw, port)
+    print(f"judge-clef gateway on http://127.0.0.1:{srv.server_address[1]}  effort {gw.lo}..{gw.hi}")
+    print(f"  export ANTHROPIC_BASE_URL=http://127.0.0.1:{srv.server_address[1]}")
+    print(f"  export ANTHROPIC_CUSTOM_HEADERS='{gateway.TOKEN_HEADER}: {gw.token}'")
+    print(f"  log: {gw.log_path}")
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        return 0
+
+
+def cmd_claude(args: list) -> int:
+    """Run Claude Code through a private gateway for the length of the session."""
+    import signal
+    import subprocess
+
+    from . import gateway
+    gw = gateway.Gateway()
+    srv = gateway.serve(gw, 0)
+    env = dict(os.environ)
+    env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{srv.server_address[1]}"
+    extra = f"{gateway.TOKEN_HEADER}: {gw.token}"
+    env["ANTHROPIC_CUSTOM_HEADERS"] = (env["ANTHROPIC_CUSTOM_HEADERS"] + "\n" + extra) if env.get("ANTHROPIC_CUSTOM_HEADERS") else extra
+    child = subprocess.Popen([os.environ.get("JUDGE_CLEF_CLAUDE_BIN", "claude"), *args], env=env)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)  # Ctrl-C belongs to Claude Code
+    code = child.wait()
+    srv.shutdown()
+    return code
+
+
 def cmd_hook() -> int:
     try:
         data = json.load(sys.stdin)
@@ -38,7 +87,10 @@ def cmd_hook() -> int:
     if not path:
         return 0
     v = judge.judge(path, data.get("prompt", ""), data.get("cwd", ""))
-    line = judge.footer(v)
+    live = _live_effort(data.get("session_id", ""))
+    if live:
+        v.effort_hint = None
+    line = judge.footer(v) + (f" · effort {live} (live)" if live else "")
     try:
         os.makedirs(CACHE, exist_ok=True)
         with open(_cache_path(data.get("session_id", "")), "w") as fh:
@@ -58,9 +110,11 @@ def cmd_statusline() -> int:
         data = json.load(sys.stdin)
     except ValueError:
         data = {}
+    live = _live_effort(data.get("session_id", ""))
     try:
         with open(_cache_path(data.get("session_id", ""))) as fh:
-            print(json.load(fh)["footer"])
+            line = json.load(fh)["footer"].split(" · effort ")[0]
+            print(line + (f" · effort {live} (live)" if live else ""))
             return 0
     except (OSError, ValueError, KeyError):
         pass
@@ -125,6 +179,12 @@ def main(argv: list | None = None) -> int:
             return cmd_check(rest)
         if cmd == "scan":
             return cmd_scan(rest)
+        if cmd == "gateway":
+            return cmd_gateway(rest)
+        if cmd == "claude":
+            return cmd_claude(rest)
+    except KeyboardInterrupt:
+        return 130
     except Exception as e:  # a monitor must never break the session
         print(f"judge-clef: {type(e).__name__}: {e}", file=sys.stderr)
         return 0

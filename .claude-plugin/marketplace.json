@@ -1,0 +1,11 @@
+{
+  "name": "judge-clef",
+  "owner": { "name": "Nicolas Mertens" },
+  "plugins": [
+    {
+      "name": "judge-clef",
+      "source": "./",
+      "description": "Tells you when to /compact: exact context size per turn plus a Cloudflare Clef judgment of whether now is a good moment."
+    }
+  ]
+}

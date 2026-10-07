@@ -1,0 +1,62 @@
+[
+  {
+    "name": "small-new-topic",
+    "tokens": 40000,
+    "prompt": "Now write a haiku about autumn.",
+    "expect": "no need"
+  },
+  {
+    "name": "heavy-done-new-topic",
+    "tokens": 520000,
+    "prompt": "Different thing: draft a short email to my landlord about the broken heater.",
+    "expect": "compact now"
+  },
+  {
+    "name": "heavy-mid-debug",
+    "tokens": 520000,
+    "prompt": "still failing with the same SignatureDoesNotMatch, keep going",
+    "expect": "no need"
+  },
+  {
+    "name": "heavy-done-same-topic",
+    "tokens": 420000,
+    "prompt": "Now add the same pagination to the orders API.",
+    "expect": "compact soon"
+  },
+  {
+    "name": "medium-done-new-topic",
+    "tokens": 180000,
+    "prompt": "Unrelated: what's a good name for a recipe app?",
+    "expect": "compact soon"
+  },
+  {
+    "name": "huge-new-topic",
+    "tokens": 850000,
+    "prompt": "Let's plan my trip to Lisbon next month.",
+    "expect": "compact now"
+  },
+  {
+    "name": "huge-waiting-answer",
+    "tokens": 800000,
+    "prompt": "go on",
+    "expect": "no need"
+  },
+  {
+    "name": "medium-mid-edit",
+    "tokens": 200000,
+    "prompt": "continue with db",
+    "expect": "no need"
+  },
+  {
+    "name": "tiny",
+    "tokens": 9000,
+    "prompt": "list the files in this folder",
+    "expect": "no need"
+  },
+  {
+    "name": "heavy-done-thanks",
+    "tokens": 450000,
+    "prompt": "thanks! next up, help me design the onboarding screens for the mobile app",
+    "expect": "compact now"
+  }
+]

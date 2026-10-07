@@ -1,0 +1,4 @@
+#!/bin/sh
+# Thin launcher: run the package next to this script with the system python3.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m judge_clef "$@"

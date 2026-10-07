@@ -1,0 +1,8 @@
+{
+  "name": "judge-clef",
+  "version": "0.1.0",
+  "description": "Tells you when to /compact: exact context size per turn plus a Cloudflare Clef judgment of whether now is a good moment.",
+  "author": { "name": "Nicolas Mertens" },
+  "license": "MIT",
+  "repository": "https://github.com/nicolasmertens/judge-clef"
+}
